@@ -1,4 +1,5 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import type { Dashboard, DashboardDataResponse, DashboardSummary } from '../types/dashboard';
 
 // Create axios instance
 export const api = axios.create({
@@ -34,12 +35,12 @@ api.interceptors.response.use(
 );
 
 export async function fetchDashboards() {
-  const response = await api.get('/dashboards');
+  const response = await api.get<DashboardSummary[]>('/dashboards');
   return response.data;
 }
 
 export async function fetchDashboard(id: string) {
-  const response = await api.get(`/dashboards/${id}`);
+  const response = await api.get<Dashboard>(`/dashboards/${id}`);
   return response.data;
 }
 
@@ -399,7 +400,7 @@ export async function fetchSharedDashboard(shareId: string) {
 }
 
 export async function fetchDashboardData(dashboardId: string) {
-  const response = await api.get(`/dashboards/${dashboardId}/data`);
+  const response = await api.get<DashboardDataResponse>(`/dashboards/${dashboardId}/data`);
   return response.data;
 }
 

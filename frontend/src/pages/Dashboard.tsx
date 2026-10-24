@@ -4,10 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDashboardStore } from '../store/dashboardSlice';
 import {
   fetchDashboards,
-  fetchDashboard,
+  fetchDashboardData,
   createDashboard,
   createWidget,
-  fetchWidgetData,
   duplicateDashboard,
   shareDashboard
 } from '../services/api';
@@ -21,7 +20,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { dashboards, currentDashboard, setDashboards, setCurrentDashboard, setWidgetData } =
+  const { dashboards, currentDashboard, setDashboards, setCurrentDashboard } =
     useDashboardStore();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -38,7 +37,14 @@ export default function Dashboard() {
   // Fetch specific dashboard
   const { data: dashboardData, isLoading: loadingDashboard } = useQuery({
     queryKey: ['dashboard', dashboardId],
-    queryFn: () => fetchDashboard(dashboardId!),
+    queryFn: async () => {
+      const { dashboard, widgetData } = await fetchDashboardData(dashboardId!);
+      const dataByWidget = new Map(widgetData.map(item => [item.widgetId, item.data]));
+      return {
+        ...dashboard,
+        widgets: dashboard.widgets.map(widget => ({ ...widget, data: dataByWidget.get(widget.id) })),
+      };
+    },
     enabled: !!dashboardId,
   });
   useEffect(() => {
@@ -52,19 +58,6 @@ export default function Dashboard() {
       setCurrentDashboard(dashboardData);
     }
   }, [dashboardData]);
-
-  // Fetch widget data for all widgets
-  useEffect(() => {
-    if (!currentDashboard?.widgets) return;
-    currentDashboard.widgets.forEach(async (widget) => {
-      try {
-        const data = await fetchWidgetData(currentDashboard.id, widget.id);
-        setWidgetData(currentDashboard.id, widget.id, data.data);
-      } catch (error) {
-        console.error('Failed to fetch widget data:', error);
-      }
-    });
-  }, [currentDashboard?.id, currentDashboard?.widgets?.length]);
 
   // Create dashboard mutation
   const createMutation = useMutation({
@@ -84,6 +77,7 @@ export default function Dashboard() {
       createWidget(dashboardId!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard', dashboardId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboards'] });
       setShowAddWidgetModal(false);
     },
   });

@@ -1,31 +1,15 @@
 import { create } from 'zustand';
 
-interface Widget {
-  id: string;
-  name: string;
-  type: string;
-  config: any;
-  position: { x: number; y: number; w: number; h: number };
-  data?: any;
-}
-
-interface Dashboard {
-  id: string;
-  name: string;
-  description?: string;
-  layout: string;
-  widgets: Widget[];
-  _count?: { widgets: number };
-}
+import type { Dashboard, DashboardSummary, Widget, WidgetData } from '../types/dashboard';
 
 interface DashboardState {
-  dashboards: Dashboard[];
+  dashboards: DashboardSummary[];
   currentDashboard: Dashboard | null;
   isLoading: boolean;
   error: string | null;
 
-  setDashboards: (dashboards: Dashboard[]) => void;
-  addDashboard: (dashboard: Dashboard) => void;
+  setDashboards: (dashboards: DashboardSummary[]) => void;
+  addDashboard: (dashboard: DashboardSummary) => void;
   removeDashboard: (id: string) => void;
   setCurrentDashboard: (dashboard: Dashboard | null) => void;
   updateDashboard: (id: string, updates: Partial<Dashboard>) => void;
@@ -33,7 +17,7 @@ interface DashboardState {
   addWidget: (dashboardId: string, widget: Widget) => void;
   updateWidget: (dashboardId: string, widgetId: string, updates: Partial<Widget>) => void;
   removeWidget: (dashboardId: string, widgetId: string) => void;
-  setWidgetData: (dashboardId: string, widgetId: string, data: any) => void;
+  setWidgetData: (dashboardId: string, widgetId: string, data: WidgetData) => void;
   reorderWidgets: (dashboardId: string, widgets: Widget[]) => void;
 }
 
@@ -80,15 +64,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
 
   addWidget: (dashboardId, widget) => {
-    const dashboards = get().dashboards;
-    const dashboard = dashboards.find((d) => d.id === dashboardId);
-
-    if (dashboard) {
-      dashboard.widgets.push(widget);
-      set({ dashboards });
-    }
-
-    // Update current dashboard too
     const current = get().currentDashboard;
     if (current?.id === dashboardId) {
       current.widgets.push(widget);
@@ -97,40 +72,16 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
 
   updateWidget: (dashboardId, widgetId, updates) => {
-    const dashboards = get().dashboards;
-    const dashboard = dashboards.find((d) => d.id === dashboardId);
-
-    if (dashboard) {
-      const widget = dashboard.widgets.find((w) => w.id === widgetId);
-      if (widget) {
-        Object.assign(widget, updates);
-        set({ dashboards });
-      }
-    }
-
-    // Update current dashboard
-    const current = get().currentDashboard;
-    if (current?.id === dashboardId) {
-      const widget = current.widgets.find((w) => w.id === widgetId);
-      if (widget) {
-        Object.assign(widget, updates);
-        set({ currentDashboard: current });
-      }
-    }
+    set(state => state.currentDashboard?.id === dashboardId ? {
+      currentDashboard: {
+        ...state.currentDashboard,
+        widgets: state.currentDashboard.widgets.map(widget =>
+          widget.id === widgetId ? { ...widget, ...updates } : widget),
+      },
+    } : {});
   },
 
   removeWidget: (dashboardId, widgetId) => {
-    const dashboards = get().dashboards;
-    const dashboard = dashboards.find((d) => d.id === dashboardId);
-
-    if (dashboard) {
-      const index = dashboard.widgets.findIndex((w) => w.id === widgetId);
-      if (index !== -1) {
-        dashboard.widgets.splice(index, 1);
-      }
-      set({ dashboards });
-    }
-
     const current = get().currentDashboard;
     if (current?.id === dashboardId) {
       const index = current.widgets.findIndex((w) => w.id === widgetId);
@@ -153,12 +104,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
 
   reorderWidgets: (dashboardId, widgets) => {
-    // This one is okay since we're replacing the array
-    const dashboards = get().dashboards.map((d) =>
-      d.id === dashboardId ? { ...d, widgets } : d
-    );
-    set({ dashboards });
-
     const current = get().currentDashboard;
     if (current?.id === dashboardId) {
       set({ currentDashboard: { ...current, widgets } });
