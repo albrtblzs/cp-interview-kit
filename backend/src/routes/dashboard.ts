@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../index';
 import { AuthRequest, requireOwnerOrAdmin } from '../middleware/auth';
 import { validate, createDashboardSchema, createWidgetSchema } from '../middleware/validate';
@@ -260,7 +261,7 @@ router.put('/:dashboardId/widgets/:widgetId', async (req: AuthRequest, res: Resp
     if (refreshInterval !== undefined) updateData.refreshInterval = refreshInterval;
 
     const widget = await prisma.widget.update({
-      where: { id: widgetId },
+      where: { id: widgetId, dashboardId, organizationId: req.user!.organizationId },
       data: updateData
     });
 
@@ -268,6 +269,9 @@ router.put('/:dashboardId/widgets/:widgetId', async (req: AuthRequest, res: Resp
 
     res.json(widget);
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return res.status(404).json({ error: 'Widget not found' });
+    }
     console.error('Update widget error:', error);
     res.status(500).json({ error: 'Failed to update widget' });
   }
@@ -290,13 +294,16 @@ router.delete('/:dashboardId/widgets/:widgetId', async (req: AuthRequest, res: R
     }
 
     await prisma.widget.delete({
-      where: { id: widgetId }
+      where: { id: widgetId, dashboardId, organizationId: req.user!.organizationId }
     });
 
     cache.delete(cacheKeys.dashboardWidgets(dashboardId));
 
     res.json({ message: 'Widget deleted' });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return res.status(404).json({ error: 'Widget not found' });
+    }
     console.error('Delete widget error:', error);
     res.status(500).json({ error: 'Failed to delete widget' });
   }
@@ -320,7 +327,7 @@ router.get('/:dashboardId/widgets/:widgetId/data', async (req: AuthRequest, res:
     }
 
     const widget = await prisma.widget.findUnique({
-      where: { id: widgetId }
+      where: { id: widgetId, dashboardId, organizationId: req.user!.organizationId }
     });
 
     if (!widget) {
