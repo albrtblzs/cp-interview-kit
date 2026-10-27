@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { Prisma, AnalyticsEvent } from '@prisma/client';
 import { prisma } from '../index';
 import { AuthRequest, requireOwnerOrAdmin } from '../middleware/auth';
 import { validate, createDashboardSchema, createWidgetSchema } from '../middleware/validate';
@@ -7,6 +8,7 @@ import { broadcastToOrg } from '../index';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
+type WidgetData = number | { eventType: string; _count: number }[] | AnalyticsEvent[];
 
 // Get all dashboards for organization
 router.get('/', async (req: AuthRequest, res: Response) => {
@@ -260,7 +262,7 @@ router.put('/:dashboardId/widgets/:widgetId', async (req: AuthRequest, res: Resp
     if (refreshInterval !== undefined) updateData.refreshInterval = refreshInterval;
 
     const widget = await prisma.widget.update({
-      where: { id: widgetId },
+      where: { id: widgetId, dashboardId, organizationId: req.user!.organizationId },
       data: updateData
     });
 
@@ -268,6 +270,9 @@ router.put('/:dashboardId/widgets/:widgetId', async (req: AuthRequest, res: Resp
 
     res.json(widget);
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return res.status(404).json({ error: 'Widget not found' });
+    }
     console.error('Update widget error:', error);
     res.status(500).json({ error: 'Failed to update widget' });
   }
@@ -290,13 +295,16 @@ router.delete('/:dashboardId/widgets/:widgetId', async (req: AuthRequest, res: R
     }
 
     await prisma.widget.delete({
-      where: { id: widgetId }
+      where: { id: widgetId, dashboardId, organizationId: req.user!.organizationId }
     });
 
     cache.delete(cacheKeys.dashboardWidgets(dashboardId));
 
     res.json({ message: 'Widget deleted' });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return res.status(404).json({ error: 'Widget not found' });
+    }
     console.error('Delete widget error:', error);
     res.status(500).json({ error: 'Failed to delete widget' });
   }
@@ -320,7 +328,7 @@ router.get('/:dashboardId/widgets/:widgetId/data', async (req: AuthRequest, res:
     }
 
     const widget = await prisma.widget.findUnique({
-      where: { id: widgetId }
+      where: { id: widgetId, dashboardId, organizationId: req.user!.organizationId }
     });
 
     if (!widget) {
@@ -388,36 +396,50 @@ router.get('/:dashboardId/data', async (req: AuthRequest, res: Response) => {
         organizationId: req.user!.organizationId
       },
       include: {
-        widgets: true
+        createdBy: { select: { id: true, name: true, email: true } },
+        widgets: {
+          where: { organizationId: req.user!.organizationId },
+          orderBy: { createdAt: 'asc' }
+        }
       }
     });
 
     if (!dashboard) {
       return res.status(404).json({ error: 'Dashboard not found' });
     }
-    const widgetData: any[] = [];
+    const widgetData: { widgetId: string; data: WidgetData }[] = [];
+    // These queries depend only on organization and widget type, not widget ID.
+    // Keep reuse local to this request to avoid stale data or cross-tenant caches.
+    const dataByType = new Map<string, WidgetData>();
 
     for (const widget of dashboard.widgets) {
-      // Each iteration makes database queries
-      let data: any = null;
+      const cachedData = dataByType.get(widget.type);
+      if (cachedData !== undefined) {
+        widgetData.push({ widgetId: widget.id, data: cachedData });
+        continue;
+      }
+      let data: WidgetData = [];
 
       if (widget.type === 'metric') {
         data = await prisma.analyticsEvent.count({
           where: { organizationId: req.user!.organizationId }
         });
       } else if (widget.type === 'chart') {
-        data = await prisma.analyticsEvent.groupBy({
+        const counts = await prisma.analyticsEvent.groupBy({
           by: ['eventType'],
           where: { organizationId: req.user!.organizationId },
           _count: true
         });
+        data = counts;
       } else if (widget.type === 'table') {
         data = await prisma.analyticsEvent.findMany({
           where: { organizationId: req.user!.organizationId },
-          take: 50
+          orderBy: { timestamp: 'desc' },
+          take: 100
         });
       }
 
+      dataByType.set(widget.type, data);
       widgetData.push({
         widgetId: widget.id,
         data

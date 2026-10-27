@@ -25,43 +25,46 @@ export const authMiddleware = async (
       return res.status(401).json({ error: 'No authorization header' });
     }
 
-    const token = authHeader.split(' ')[1];
+    const bearer = /^Bearer +([^\s]+)$/i.exec(authHeader);
 
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
+    if (!bearer) {
+      return res.status(401).json({ error: 'Invalid authorization header' });
     }
 
+    let decoded: string | jwt.JwtPayload;
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
-
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId }
-      });
-
-      if (!user) {
-        return res.status(401).json({ error: 'User not found' });
-      }
-
-      if (!user.isActive) {
-        return res.status(401).json({ error: 'User is deactivated' });
-      }
-
-      req.user = {
-        id: user.id,
-        email: user.email,
-        organizationId: user.organizationId,
-        role: user.role
-      };
-
-      next();
-    } catch (jwtError) {
-      console.log('JWT verification failed:', jwtError);
-      next();
+      decoded = jwt.verify(bearer[1], JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
+
+    if (typeof decoded !== 'object' || typeof decoded.userId !== 'string' || !decoded.userId.trim()) {
+      return res.status(401).json({ error: 'Invalid token payload' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId }
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    if (!user.isActive) {
+      return res.status(401).json({ error: 'User is deactivated' });
+    }
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      organizationId: user.organizationId,
+      role: user.role
+    };
   } catch (error) {
     console.error('Auth middleware error:', error);
     return res.status(500).json({ error: 'Authentication error' });
   }
+  next();
 };
 
 export const requireRole = (roles: string[]) => {

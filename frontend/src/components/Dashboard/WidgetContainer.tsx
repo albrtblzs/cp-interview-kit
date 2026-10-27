@@ -51,6 +51,7 @@ const WidgetContainer = memo(forwardRef<HTMLDivElement, WidgetContainerProps>(fu
     mutationFn: () => deleteWidget(dashboardId, widget.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dashboard', dashboardId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboards'] });
     },
   });
 
